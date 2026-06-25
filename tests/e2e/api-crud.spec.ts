@@ -22,9 +22,34 @@ test.describe("API auth and CRUD-like marketplace operations", () => {
     const loginBody = await loginResponse.json();
     const token = loginBody.data.accessToken;
     expect(token).toBeTruthy();
+    const authHeaders = { authorization: `Bearer ${token}` };
+
+    // 1x1 transparent PNG placeholder for selfie + ID uploads.
+    const sampleImage =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    const verifyResponse = await api.post("/api/v1/verifications", {
+      headers: authHeaders,
+      data: {
+        idType: "aadhaar",
+        idNumber: "123412341234",
+        idName: "Ravi Kumar",
+        idImage: sampleImage,
+        selfieImage: sampleImage
+      }
+    });
+    expect(verifyResponse.status()).toBe(201);
+    const verifyBody = await verifyResponse.json();
+    expect(verifyBody.data.kycStatus).toBe("under_review");
+
+    const approveVerification = await api.post(
+      `/api/v1/admin/verifications/${verifyBody.data.userId}/approve`,
+      { headers: authHeaders }
+    );
+    expect(approveVerification.ok()).toBeTruthy();
 
     const createResponse = await api.post("/api/v1/listings", {
-      headers: { authorization: `Bearer ${token}` },
+      headers: authHeaders,
       data: {
         type: "job",
         title: `API CRUD helper ${Date.now()}`,
@@ -33,7 +58,8 @@ test.describe("API auth and CRUD-like marketplace operations", () => {
         priceUnit: "day",
         locality: "Ameerpet",
         city: "Hyderabad",
-        urgency: "today"
+        urgency: "today",
+        location: { lat: 17.437, lng: 78.448, accuracy: 20 }
       }
     });
     expect(createResponse.status()).toBe(201);

@@ -1,7 +1,17 @@
 import "dotenv/config";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import { ApiResponse, FeedListing, Listing, ListingType, ok, seedListings, seedUsers } from "@upaadhi/shared";
+import {
+  ApiResponse,
+  FeedListing,
+  isListingExpired,
+  Listing,
+  ListingType,
+  ok,
+  seedListings,
+  seedUsers
+} from "@upaadhi/shared";
+import { redactSensitiveMetadata } from "@upaadhi/shared/security";
 
 const port = Number(process.env.FEED_PORT ?? process.env.PORT ?? 4103);
 const listingServiceUrl = process.env.LISTING_URL ?? "http://localhost:4102";
@@ -26,14 +36,16 @@ async function getListings(): Promise<Listing[]> {
 
 function buildFeed(listings: Listing[], type?: ListingType, maxDistance = 10): FeedListing[] {
   return listings
-    .filter((listing) => listing.status === "active")
+    .filter((listing) => listing.status === "active" && !isListingExpired(listing))
     .filter((listing) => (type ? listing.type === type : true))
     .filter((listing) => listing.distanceKm <= maxDistance)
     .sort((a, b) => b.trustScore - a.trustScore || a.distanceKm - b.distanceKm)
     .map((listing) => {
       const owner = seedUsers.find((user) => user.id === listing.ownerId) ?? seedUsers[0];
+      // Location privacy: never expose exact coordinates or device IP in the feed.
+      const safe = redactSensitiveMetadata(listing);
       return {
-        ...listing,
+        ...safe,
         owner: {
           id: owner.id,
           name: owner.name,

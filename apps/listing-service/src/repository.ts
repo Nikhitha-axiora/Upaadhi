@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDatabaseConfigured, query } from "@upaadhi/db";
-import { Listing, ListingStatus, ListingType, seedListings } from "@upaadhi/shared";
+import { computeExpiry, Listing, ListingStatus, ListingType, seedListings } from "@upaadhi/shared";
 
 interface ListingRow {
   id: string;
@@ -42,6 +42,7 @@ export interface ListingRepository {
 }
 
 function mapListing(row: ListingRow): Listing {
+  const postedAt = row.posted_at.toISOString();
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -56,7 +57,8 @@ function mapListing(row: ListingRow): Listing {
     urgency: row.urgency,
     status: row.status,
     trustScore: row.trust_score,
-    postedAt: row.posted_at.toISOString(),
+    postedAt,
+    expiresAt: computeExpiry(postedAt),
     metadata: row.metadata
   };
 }
@@ -66,6 +68,7 @@ function buildListing(input: CreateListingInput): Listing {
     throw new Error("LISTING_VALIDATION_FAILED");
   }
 
+  const postedAt = new Date().toISOString();
   return {
     id: `lst_${randomUUID()}`,
     ownerId: input.ownerId ?? "usr_ravi",
@@ -80,7 +83,8 @@ function buildListing(input: CreateListingInput): Listing {
     urgency: input.urgency ?? "today",
     status: "pending_review",
     trustScore: 70,
-    postedAt: new Date().toISOString(),
+    postedAt,
+    expiresAt: computeExpiry(postedAt),
     metadata: input.metadata ?? {}
   };
 }

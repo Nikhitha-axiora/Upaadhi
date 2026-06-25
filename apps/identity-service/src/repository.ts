@@ -16,11 +16,37 @@ interface UserRow {
   verification_status: VerificationStatus;
 }
 
+export interface CreateUserInput {
+  name: string;
+  phone: string;
+  locality?: string;
+  city?: string;
+  roles?: string[];
+}
+
 export interface IdentityRepository {
   listUsers(): Promise<UserProfile[]>;
   getUserById(id: string): Promise<UserProfile | undefined>;
+  getUserByPhone(phone: string): Promise<UserProfile | undefined>;
+  createUser(input: CreateUserInput): Promise<UserProfile>;
   createOtpChallenge(phone: string, otpHash: string, expiresAt: Date): Promise<void>;
   verifyOtpChallenge(phone: string, otpHash: string): Promise<boolean>;
+}
+
+function buildUser(input: CreateUserInput): UserProfile {
+  return {
+    id: `usr_${crypto.randomUUID().slice(0, 8)}`,
+    name: input.name,
+    phone: input.phone,
+    locality: input.locality ?? "",
+    city: input.city ?? "",
+    roles: input.roles ?? ["earner"],
+    skills: [],
+    rating: 0,
+    completedCount: 0,
+    responseTimeMinutes: 30,
+    verificationStatus: "none"
+  };
 }
 
 function mapUser(row: UserRow): UserProfile {
@@ -40,6 +66,7 @@ function mapUser(row: UserRow): UserProfile {
 }
 
 class MemoryIdentityRepository implements IdentityRepository {
+  private users: UserProfile[] = [...seedUsers];
   private otpChallenges: Array<{
     phone: string;
     otpHash: string;
@@ -50,11 +77,21 @@ class MemoryIdentityRepository implements IdentityRepository {
   }> = [];
 
   async listUsers() {
-    return seedUsers;
+    return this.users;
   }
 
   async getUserById(id: string) {
-    return seedUsers.find((item) => item.id === id);
+    return this.users.find((item) => item.id === id);
+  }
+
+  async getUserByPhone(phone: string) {
+    return this.users.find((item) => item.phone === phone);
+  }
+
+  async createUser(input: CreateUserInput) {
+    const user = buildUser(input);
+    this.users.unshift(user);
+    return user;
   }
 
   async createOtpChallenge(phone: string, otpHash: string, expiresAt: Date) {
@@ -106,6 +143,48 @@ class PostgresIdentityRepository implements IdentityRepository {
       [id]
     );
     return result.rows[0] ? mapUser(result.rows[0]) : undefined;
+  }
+
+  async getUserByPhone(phone: string) {
+    const result = await query<UserRow>(
+      `
+        SELECT id, phone, name, locality, city, roles, skills, rating, completed_count, response_time_minutes, verification_status
+        FROM identity.users
+        WHERE phone = $1 AND status = 'active'
+        LIMIT 1
+      `,
+      [phone]
+    );
+    return result.rows[0] ? mapUser(result.rows[0]) : undefined;
+  }
+
+  async createUser(input: CreateUserInput) {
+    const user = buildUser(input);
+    const result = await query<UserRow>(
+      `
+        INSERT INTO identity.users (
+          id, phone, name, locality, city, roles, skills, rating, completed_count,
+          response_time_minutes, verification_status, status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+        RETURNING id, phone, name, locality, city, roles, skills, rating, completed_count,
+                  response_time_minutes, verification_status
+      `,
+      [
+        user.id,
+        user.phone,
+        user.name,
+        user.locality,
+        user.city,
+        user.roles,
+        user.skills,
+        user.rating,
+        user.completedCount,
+        user.responseTimeMinutes,
+        user.verificationStatus
+      ]
+    );
+    return mapUser(result.rows[0]);
   }
 
   async createOtpChallenge(phone: string, otpHash: string, expiresAt: Date) {

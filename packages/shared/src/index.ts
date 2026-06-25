@@ -1,6 +1,10 @@
 export type ListingType = "job" | "service" | "sell" | "rent";
 
-export type ListingStatus = "active" | "pending_review" | "closed" | "rejected";
+export type ListingStatus = "active" | "pending_review" | "closed" | "rejected" | "expired";
+
+/** Default lifespan of a listing before it auto-expires. */
+export const LISTING_TTL_DAYS = 15;
+const DAY_MS = 1000 * 60 * 60 * 24;
 
 export type VerificationStatus = "none" | "phone_verified" | "employer_verified" | "id_verified";
 
@@ -33,7 +37,31 @@ export interface Listing {
   status: ListingStatus;
   trustScore: number;
   postedAt: string;
+  expiresAt: string;
   metadata: Record<string, string | number | boolean | string[]>;
+}
+
+/** When a listing posted at `postedAt` should expire. */
+export function computeExpiry(postedAt: string, ttlDays = LISTING_TTL_DAYS): string {
+  return new Date(new Date(postedAt).getTime() + ttlDays * DAY_MS).toISOString();
+}
+
+/** True once an active listing has passed its expiry time. */
+export function isListingExpired(listing: Pick<Listing, "status" | "expiresAt">, now = Date.now()): boolean {
+  return listing.status === "active" && new Date(listing.expiresAt).getTime() <= now;
+}
+
+/** The status to show the user, accounting for lapsed expiry. */
+export function effectiveListingStatus(
+  listing: Pick<Listing, "status" | "expiresAt">,
+  now = Date.now()
+): ListingStatus {
+  return isListingExpired(listing, now) ? "expired" : listing.status;
+}
+
+/** Whole days remaining before expiry (negative once expired). */
+export function daysUntilExpiry(listing: Pick<Listing, "expiresAt">, now = Date.now()): number {
+  return Math.ceil((new Date(listing.expiresAt).getTime() - now) / DAY_MS);
 }
 
 export interface FeedListing extends Listing {
@@ -48,6 +76,86 @@ export interface ReportPayload {
   reportedUserId?: string;
   reason: string;
   details?: string;
+}
+
+/* ---- Identity verification (KYC) ----------------------------------------- */
+
+export type IdType = "aadhaar" | "pan" | "driving_license" | "voter_id" | "passport";
+
+export type KycStatus = "unverified" | "under_review" | "verified" | "rejected";
+
+export interface KycLocation {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
+/** Submitted by the client. Images are data URLs (downscaled JPEG). */
+export interface VerificationSubmission {
+  idType: IdType;
+  idNumber: string;
+  idName: string;
+  selfieImage: string;
+  idImage: string;
+  location?: KycLocation | null;
+}
+
+/** Sensitive record persisted server-side in the user's application data. */
+export interface VerificationFile extends VerificationSubmission {
+  userId: string;
+  kycStatus: KycStatus;
+  ipAddress?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+}
+
+/** Safe-to-return projection — never exposes raw images or the full ID number. */
+export interface VerificationRecord {
+  userId: string;
+  kycStatus: KycStatus;
+  idType?: IdType;
+  idNumberMasked?: string;
+  idName?: string;
+  hasSelfie: boolean;
+  hasIdPhoto: boolean;
+  ipAddress?: string;
+  location?: KycLocation;
+  submittedAt?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+}
+
+export const idTypeLabels: Record<IdType, string> = {
+  aadhaar: "Aadhaar",
+  pan: "PAN card",
+  driving_license: "Driving licence",
+  voter_id: "Voter ID",
+  passport: "Passport"
+};
+
+/** Mask all but the last 4 characters of an ID number. */
+export function maskIdNumber(value: string): string {
+  const clean = value.replace(/\s+/g, "");
+  if (clean.length <= 4) return clean;
+  return `${"•".repeat(Math.max(2, clean.length - 4))}${clean.slice(-4)}`;
+}
+
+export function toVerificationRecord(file: VerificationFile): VerificationRecord {
+  return {
+    userId: file.userId,
+    kycStatus: file.kycStatus,
+    idType: file.idType,
+    idNumberMasked: file.idNumber ? maskIdNumber(file.idNumber) : undefined,
+    idName: file.idName,
+    hasSelfie: Boolean(file.selfieImage),
+    hasIdPhoto: Boolean(file.idImage),
+    ipAddress: file.ipAddress,
+    location: file.location ?? undefined,
+    submittedAt: file.submittedAt,
+    reviewedAt: file.reviewedAt,
+    rejectionReason: file.rejectionReason
+  };
 }
 
 export interface ApiMeta {
@@ -137,7 +245,7 @@ export const seedUsers: UserProfile[] = [
   }
 ];
 
-export const seedListings: Listing[] = [
+const baseSeedListings: Array<Omit<Listing, "expiresAt">> = [
   {
     id: "lst_shop_helper",
     ownerId: "usr_lakshmi",
@@ -201,9 +309,16 @@ export const seedListings: Listing[] = [
   }
 ];
 
+export const seedListings: Listing[] = baseSeedListings.map((listing) => ({
+  ...listing,
+  expiresAt: computeExpiry(listing.postedAt)
+}));
+
 export interface AuthClaims {
   userId: string;
   phone: string;
   roles: string[];
+  /** Binds the access token to a server-side session for revocation. */
+  sessionId?: string;
 }
 

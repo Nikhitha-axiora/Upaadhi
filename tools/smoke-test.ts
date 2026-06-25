@@ -1,7 +1,11 @@
 import { strict as assert } from "node:assert";
-import type { ApiResponse, FeedListing, Listing } from "@upaadhi/shared";
+import type { ApiResponse, FeedListing, Listing, VerificationRecord } from "@upaadhi/shared";
 
 const apiBase = process.env.API_BASE ?? "http://localhost:4000";
+
+// 1x1 transparent PNG — stands in for selfie/ID uploads in the smoke test.
+const sampleImage =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 async function request<T>(path: string, init?: RequestInit) {
   const headers: Record<string, string> = {
@@ -36,9 +40,31 @@ async function main() {
 
   assert.ok(auth.accessToken, "access token should be returned");
 
+  const authHeader = { authorization: `Bearer ${auth.accessToken}` };
+
+  // Verification is mandatory before posting — submit KYC and approve it.
+  const submitted = await request<VerificationRecord>("/api/v1/verifications", {
+    method: "POST",
+    headers: authHeader,
+    body: JSON.stringify({
+      idType: "aadhaar",
+      idNumber: "123412341234",
+      idName: "Ravi Kumar",
+      idImage: sampleImage,
+      selfieImage: sampleImage
+    })
+  });
+  assert.equal(submitted.kycStatus, "under_review");
+
+  const approved = await request<VerificationRecord>(
+    `/api/v1/admin/verifications/${submitted.userId}/approve`,
+    { method: "POST", headers: authHeader }
+  );
+  assert.equal(approved.kycStatus, "verified");
+
   const listing = await request<Listing>("/api/v1/listings", {
     method: "POST",
-    headers: { authorization: `Bearer ${auth.accessToken}` },
+    headers: authHeader,
     body: JSON.stringify({
       type: "job",
       title: `Smoke test helper ${Date.now()}`,
@@ -47,7 +73,8 @@ async function main() {
       priceUnit: "day",
       locality: "Ameerpet",
       city: "Hyderabad",
-      urgency: "today"
+      urgency: "today",
+      location: { lat: 17.437, lng: 78.448, accuracy: 20 }
     })
   });
 
