@@ -1,0 +1,38 @@
+{
+  "name": "upaadhi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Upaadhi hyperlocal earning marketplace",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @upaadhi/identity-service\" \"npm run dev -w @upaadhi/listing-service\" \"npm run dev -w @upaadhi/feed-service\" \"npm run dev -w @upaadhi/trust-service\" \"npm run dev -w @upaadhi/api-gateway\" \"npm run dev -w @upaadhi/web\"",
+    "dev:api": "concurrently \"npm run dev -w @upaadhi/identity-service\" \"npm run dev -w @upaadhi/listing-service\" \"npm run dev -w @upaadhi/feed-service\" \"npm run dev -w @upaadhi/trust-service\" \"npm run dev -w @upaadhi/api-gateway\"",
+    "migrate": "tsx tools/migrate.ts",
+    "build": "npm run build --workspaces",
+    "test:smoke": "tsx tools/smoke-test.ts",
+    "test:e2e": "playwright test",
+    "test:performance": "tsx tests/performance/api-performance.ts",
+    "test:all": "npm run typecheck && npm run build && npm run test:smoke && npm run test:e2e && npm run test:performance",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces",
+    "start": "npm run start -w @upaadhi/api-gateway",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "@types/node": "^24.0.3",
+    "concurrently": "^9.2.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^11.0.0",
+    "dotenv": "^16.5.0",
+    "jose": "^6.2.3",
+    "pg": "^8.16.2"
+  }
+}

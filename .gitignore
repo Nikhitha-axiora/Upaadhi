@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.logs/
+.env
+*.tsbuildinfo
+npm-debug.log*
+playwright-report/
+test-results/
+
